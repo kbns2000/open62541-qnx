@@ -1,0 +1,43 @@
+# open62541-qnx change: udp-empty-datagram
+# SPDX-License-Identifier: MPL-2.0
+#
+# title: Do not close a UDP socket because of an empty datagram
+# file: open62541.c
+# upstream: arch/eventloop_posix_udp.c
+# test: pubsub.unicast.empty_datagram
+#
+# A UDP datagram without payload is a valid datagram, and recvfrom() returns
+# 0 for it. The code takes every result <= 0 except EINTR as the end of the
+# socket and closes it. A PubSub connection of this release does not reopen a
+# receive socket that the EventLoop has closed: its connection callback
+# reconnects only in the state Operational (src/pubsub/ua_pubsub_eventloop.c),
+# and UA_PubSubConnection_setPubSubState() never stores that state for a
+# connection, only PreOperational (src/pubsub/ua_pubsub_connection.c). One
+# empty datagram leaves the subscriber without a socket, while its ReaderGroup
+# and DataSetReader still report Operational. Anybody who can reach the port
+# can send that datagram.
+#
+# The same branch also closes the socket after EAGAIN or EWOULDBLOCK, which say
+# only that no datagram is waiting.
+#
+@@ hunk
+<<<<<<< open62541 v1.4.22
+    /* Receive has failed */
+    if(ret <= 0) {
+        if(UA_ERRNO == UA_INTERRUPTED)
+            return;
+
+        /* Orderly shutdown of the socket. We can immediately close as no method
+=======
+    /* Receive has failed */
+    if(ret <= 0) {
+        /* qnx: a datagram without payload is a valid datagram, and anybody can
+         * send one: recvfrom() returns 0 for it and does not set errno. It is
+         * no reason to close the socket, and neither is EAGAIN, which says
+         * only that no datagram is waiting. */
+        if(ret == 0 || UA_ERRNO == UA_INTERRUPTED ||
+           UA_ERRNO == UA_AGAIN || UA_ERRNO == UA_WOULDBLOCK)
+            return;
+
+        /* Orderly shutdown of the socket. We can immediately close as no method
+>>>>>>> open62541-qnx
